@@ -1,7 +1,7 @@
 
 import { Account, Transaction } from '../types';
 
-const DB_NAME = 'BarakaInvestDB_v2'; // Bump version to ensure clean slate for improved logic
+const DB_NAME = 'BarakaInvestDB_v2';
 const DB_VERSION = 1;
 
 export const initDB = (): Promise<IDBDatabase> => {
@@ -31,7 +31,7 @@ export const saveData = async (accounts: Account[], transactions: Transaction[])
   const txStore = tx.objectStore('transactions');
 
   // We clear and rewrite because the arrays in state are the "source of truth"
-  // However, we only do this if we are certain the state is hydrated.
+  // Note: IndexedDB clear() and add() within a single transaction is atomic.
   accStore.clear();
   txStore.clear();
 

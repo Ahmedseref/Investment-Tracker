@@ -30,6 +30,8 @@ const INITIAL_ACCOUNTS: Account[] = [
   }
 ];
 
+type SortKey = 'date' | 'currentBalance' | 'calculatedProfit';
+
 const App: React.FC = () => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -37,6 +39,12 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'analytics'>('overview');
   const hasHydrated = useRef(false);
   
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
+    key: 'date',
+    direction: 'desc'
+  });
+
   const [activeAccount, setActiveAccount] = useState<Account | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
@@ -71,12 +79,15 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  // Sync to Database
+  // Sync to Database - Debounced and Guarded
   useEffect(() => {
     if (hasHydrated.current && !isInitializing) {
-      saveData(accounts, transactions).catch(err => {
-        console.error("Auto-save failed:", err);
-      });
+      const timer = setTimeout(() => {
+        saveData(accounts, transactions).catch(err => {
+          console.error("Auto-save failed:", err);
+        });
+      }, 500); // Small debounce to avoid DB thrashing
+      return () => clearTimeout(timer);
     }
   }, [accounts, transactions, isInitializing]);
 
@@ -87,7 +98,7 @@ const App: React.FC = () => {
     const otherTxs = allTransactions.filter(t => t.accountId !== affectedAccountId);
     const accTxs = allTransactions
       .filter(t => t.accountId === affectedAccountId)
-      .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     let runningBalance = account.initialCapital || 0;
     const healedAccTxs = accTxs.map(tx => {
@@ -201,8 +212,40 @@ const App: React.FC = () => {
     return totals;
   }, [accounts, transactions]);
 
-  // --- ANALYSIS DATA ---
+  // --- SORTING LOGIC ---
+  const handleSort = (key: SortKey) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
 
+  const sortedTransactions = useMemo(() => {
+    const sorted = [...transactions];
+    sorted.sort((a, b) => {
+      let valA: any = a[sortConfig.key];
+      let valB: any = b[sortConfig.key];
+
+      if (sortConfig.key === 'date') {
+        valA = new Date(valA).getTime();
+        valB = new Date(valB).getTime();
+      }
+
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [transactions, sortConfig]);
+
+  const renderSortIcon = (key: SortKey) => {
+    if (sortConfig.key !== key) return <svg className="w-3 h-3 opacity-20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 5.83L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z"/></svg>;
+    return sortConfig.direction === 'asc' 
+      ? <svg className="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 24 24"><path d="M7 14l5-5 5 5H7z"/></svg> 
+      : <svg className="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5H7z"/></svg>;
+  };
+
+  // --- ANALYSIS DATA ---
   const allocationByBank = useMemo(() => {
     return accounts.map(acc => ({
       name: acc.bankName,
@@ -278,6 +321,7 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+        {/* ... stats widgets ... */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 group hover:border-emerald-200 transition-all">
             <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Total TRY Capital</p>
@@ -313,6 +357,7 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* ... charts ... */}
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="flex border-b">
             <button 
@@ -435,6 +480,7 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {/* ... accounts grid ... */}
         <div className="space-y-4">
           <div className="flex justify-between items-end">
             <div>
@@ -486,6 +532,7 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {/* --- TRANSACTION TABLE WITH SORTING --- */}
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
             <h3 className="font-black text-slate-800 uppercase tracking-widest text-xs">Transaction Records</h3>
@@ -495,15 +542,27 @@ const App: React.FC = () => {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50/50 text-slate-400 uppercase text-[10px] font-black tracking-widest border-b">
                 <tr>
-                  <th className="px-8 py-5">Date</th>
+                  <th className="px-8 py-5">
+                    <button onClick={() => handleSort('date')} className="flex items-center gap-2 hover:text-emerald-600 transition-colors uppercase">
+                      Date {renderSortIcon('date')}
+                    </button>
+                  </th>
                   <th className="px-8 py-5">Account</th>
-                  <th className="px-8 py-5">Balance</th>
-                  <th className="px-8 py-5">Profit Contrib.</th>
+                  <th className="px-8 py-5">
+                    <button onClick={() => handleSort('currentBalance')} className="flex items-center gap-2 hover:text-emerald-600 transition-colors uppercase">
+                      Balance {renderSortIcon('currentBalance')}
+                    </button>
+                  </th>
+                  <th className="px-8 py-5">
+                    <button onClick={() => handleSort('calculatedProfit')} className="flex items-center gap-2 hover:text-emerald-600 transition-colors uppercase">
+                      Profit Contrib. {renderSortIcon('calculatedProfit')}
+                    </button>
+                  </th>
                   <th className="px-8 py-5 text-right pr-12">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {transactions.slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(tx => {
+                {sortedTransactions.map(tx => {
                   const acc = accounts.find(a => a.id === tx.accountId);
                   const isEditing = editingTransaction?.id === tx.id;
                   return (
