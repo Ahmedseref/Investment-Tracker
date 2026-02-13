@@ -2,6 +2,20 @@
 import { Transaction, TransactionType } from '../types';
 
 /**
+ * Robust ID generator that works in non-HTTPS environments
+ */
+export const generateId = (): string => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (e) {}
+  
+  // Fallback for non-secure contexts
+  return 'idx-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now().toString(36);
+};
+
+/**
  * Calculates profit based on Islamic banking logic:
  * Profit % = ((Current Balance − Previous Balance − External Deposit + External Withdrawal) / Previous Balance) × 100
  */
@@ -32,9 +46,14 @@ export const calculateProfitStats = (
 };
 
 export const formatCurrency = (amount: number, currency: string) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-    minimumFractionDigits: 2
-  }).format(amount);
+  try {
+    const validCurrency = (currency && currency.length === 3) ? currency.toUpperCase() : 'TRY';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: validCurrency,
+      minimumFractionDigits: 2
+    }).format(amount || 0);
+  } catch (e) {
+    return `${(amount || 0).toFixed(2)} ${currency || 'TRY'}`;
+  }
 };
